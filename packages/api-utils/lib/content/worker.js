@@ -38,23 +38,35 @@
  * ***** END LICENSE BLOCK ***** */
 "use strict";
 
-const { shims } = require('cuddlefish');
-const { Trait } = require('traits');
-const { EventEmitter, EventEmitterTrait } = require('events');
+const { shims } = require('../cuddlefish');
+const { Trait } = require('../traits');
+const { EventEmitter, EventEmitterTrait } = require('../events');
 const { Ci, Cu, Cc } = require('chrome');
-const timer = require('timer');
-const { toFilename } = require('url');
-const file = require('file');
-const unload = require('unload');
-const observers = require("observer-service");
-const { Cortex } = require('cortex');
-const { Enqueued } = require('utils/function');
-const proxy = require('content/content-proxy');
+const timer = require('../timer');
+const { toFilename } = require('../url');
+const file = require('../file');
+const unload = require('../unload');
+const observers = require('../observer-service');
+const { Cortex } = require('../cortex');
+const { Enqueued } = require('../utils/function');
+const proxy = require('./content-proxy');
 
 const JS_VERSION = '1.8';
 
 const ERR_DESTROYED =
   "The page has been destroyed and can no longer be used.";
+
+
+function ensureArgumentsAreJSON(args) {
+  // First convert to real array
+  let array = Array.prototype.slice.call(args);
+  // JSON.stringify is buggy with cross-sandbox values,
+  // it may return "{}" on functions. Use a replacer to match them correctly.
+  function replacer(k, v) {
+    return typeof v === "function" ? undefined : v;
+  }
+  return JSON.parse(JSON.stringify(array, replacer));
+}
 
 /**
  * Extended `EventEmitter` allowing us to emit events asynchronously.
@@ -84,29 +96,45 @@ const WorkerGlobalScope = AsyncEventEmitter.compose({
   // emit `error` event on a symbiont if exception is thrown in
   // the Worker global scope.
   // @see http://www.w3.org/TR/workers/#workerutils
+
+  // List of all living timeouts/intervals
+  _timers: null,
+
   setTimeout: function setTimeout(callback, delay) {
     let params = Array.slice(arguments, 2);
-    return timer.setTimeout(function(worker) {
+    let id = timer.setTimeout(function(self) {
       try {
+        delete self._timers[id];
         callback.apply(null, params);
       } catch(e) {
-        worker._asyncEmit('error', e);
+        self._addonWorker._asyncEmit('error', e);
       }
-    }, delay, this._addonWorker);
+    }, delay, this);
+    this._timers[id] = true;
+    return id;
   },
-  clearTimeout: timer.clearTimeout,
+  clearTimeout: function clearTimeout(id){
+    delete this._timers[id];
+    return timer.clearTimeout(id);
+  },
 
   setInterval: function setInterval(callback, delay) {
     let params = Array.slice(arguments, 2);
-    return timer.setInterval(function(worker) {
+    let id = timer.setInterval(function(self) {
       try {
+        delete self._timers[id];
         callback.apply(null, params); 
       } catch(e) {
-        worker._asyncEmit('error', e);
+        self._addonWorker._asyncEmit('error', e);
       }
-    }, delay, this._addonWorker);
+    }, delay, this);
+    this._timers[id] = true;
+    return id;
   },
-  clearInterval: timer.clearInterval,
+  clearInterval: function clearInterval(id) {
+    delete this._timers[id];
+    return timer.clearInterval(id);
+  },
 
   /**
    * `onMessage` function defined in the global scope of the worker context.
@@ -195,12 +223,20 @@ const WorkerGlobalScope = AsyncEventEmitter.compose({
     Object.defineProperties(sandbox, {
       window: { get: function() sandbox },
       top: { get: function() sandbox },
+      // Use the Greasemonkey naming convention to provide access to the
+      // unwrapped window object so the content script can access document
+      // JavaScript values.
+      // NOTE: this functionality is experimental and may change or go away
+      // at any time!
       unsafeWindow: { get: function () window }
     });
     
     // Overriding / Injecting some natives into sandbox.
     Cu.evalInSandbox(shims.contents, sandbox, JS_VERSION, shims.filename);
     
+    // Initialize timer lists
+    this._timers = {};
+
     let publicAPI = this._public;
     
     // List of content script globals:
@@ -271,6 +307,11 @@ const WorkerGlobalScope = AsyncEventEmitter.compose({
   },
   _destructor: function _destructor() {
     this._removeAllListeners();
+    // Unregister all setTimeout/setInterval
+    // We can use `clearTimeout` for both setTimeout/setInterval
+    // as internal implementation of timer module use same method for both.
+    for (let id in this._timers)
+      timer.clearTimeout(id);
     let publicAPI = this._public,
         sandbox = this._sandbox;
     delete sandbox.__proto__;
@@ -414,7 +455,8 @@ const Worker = AsyncEventEmitter.compose({
     }
     
     let scope = this._contentWorker._port;
-    scope._asyncEmit.apply(scope, args);
+    // Ensure that we pass only JSON values
+    scope._asyncEmit.apply(scope, ensureArgumentsAreJSON(args));
   },
   
   // Is worker connected to the content worker (i.e. WorkerGlobalScope) ?
@@ -482,7 +524,7 @@ const Worker = AsyncEventEmitter.compose({
   },
   
   get tab() {
-    let tab = require("tabs/tab");
+    let tab = require("../tabs/tab");
     return tab.getTabForWindow(this._window);
   },
   
@@ -519,7 +561,8 @@ const Worker = AsyncEventEmitter.compose({
    * worker.port. Provide a way for composed object to catch all events.
    */
   _onContentScriptEvent: function _onContentScriptEvent() {
-    this._port._asyncEmit.apply(this._port, arguments);
+    // Ensure that we pass only JSON values
+    this._port._asyncEmit.apply(this._port, ensureArgumentsAreJSON(arguments));
   },
   
   /**
