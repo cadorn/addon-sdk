@@ -196,7 +196,7 @@ const Symbiont = Worker.resolve({
    * content scripts according to contentScriptWhen. Overloaded by Panel. 
    */
   _onInit: function () {
-    this._initWorker({ window: this._frame.contentWindow.wrappedJSObject });
+    this._initWorker({ window: this._frame.contentWindow });
   }
   
 });
