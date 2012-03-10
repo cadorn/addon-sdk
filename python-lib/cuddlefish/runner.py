@@ -1,14 +1,16 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 import os
 import sys
 import time
 import tempfile
 import atexit
-import shutil
 import shlex
 import subprocess
 import re
 
-import simplejson as json
 import mozrunner
 from cuddlefish.prefs import DEFAULT_COMMON_PREFS
 from cuddlefish.prefs import DEFAULT_FIREFOX_PREFS
@@ -160,7 +162,9 @@ class RemoteFennecRunner(mozrunner.Runner):
         elif mobile_app_name:
             if not mobile_app_name in intents:
                 raise ValueError("Unable to found Firefox application "
-                                "with intent name '%s'", mobile_app_name)
+                                 "with intent name '%s'\n"
+                                 "Available ones are: %s" %
+                                 (mobile_app_name, ", ".join(intents)))
             self._intent_name = self._INTENT_PREFIX + mobile_app_name
         else:
             if "firefox" in intents:
@@ -206,7 +210,7 @@ class RemoteFennecRunner(mozrunner.Runner):
                     remoteFile = os.path.join(remoteFile, relRoot)
                 remoteFile = os.path.join(remoteFile, file)
                 remoteFile = "/".join(remoteFile.split(os.sep))
-                subprocess.Popen([self._adb_path, "push", localFile, remoteFile], 
+                subprocess.Popen([self._adb_path, "push", localFile, remoteFile],
                                  stderr=subprocess.PIPE).wait()
             for dir in dirs:
                 targetDir = remoteDir.replace("/", os.sep)
@@ -381,6 +385,15 @@ def run_app(harness_root_dir, manifest_rdf, harness_options,
     cmdargs = []
     preferences = dict(DEFAULT_COMMON_PREFS)
 
+    # For now, only allow running on Mobile with --force-mobile argument
+    if app_type in ["fennec", "fennec-on-device"] and not enable_mobile:
+        print """
+  WARNING: Firefox Mobile support is still experimental.
+  If you would like to run an addon on this platform, use --force-mobile flag:
+
+    cfx --force-mobile"""
+        return 0
+
     if app_type == "fennec-on-device":
         profile_class = FennecProfile
         preferences.update(DEFAULT_FENNEC_PREFS)
@@ -407,7 +420,7 @@ def run_app(harness_root_dir, manifest_rdf, harness_options,
         raise ValueError("Unknown app: %s" % app_type)
     if sys.platform == 'darwin' and app_type != 'xulrunner':
         cmdargs.append('-foreground')
-    
+
     if args:
         cmdargs.extend(shlex.split(args))
 
@@ -442,7 +455,9 @@ def run_app(harness_root_dir, manifest_rdf, harness_options,
 
     logfile = os.path.abspath(os.path.expanduser(logfile))
     maybe_remove_logfile()
-    harness_options['logFile'] = logfile
+
+    if app_type != "fennec-on-device":
+        harness_options['logFile'] = logfile
 
     env = {}
     env.update(os.environ)
@@ -507,12 +522,19 @@ def run_app(harness_root_dir, manifest_rdf, harness_options,
     sys.stdout.flush(); sys.stderr.flush()
 
     if app_type == "fennec-on-device":
-      # in case we run it on a mobile device, we only have to launch it
-      runner.start()
-      profile.cleanup()
-      time.sleep(1)
-      print >>sys.stderr, "Remote application launched successfully."
-      return 0
+        # in case we run it on a mobile device, we only have to launch it
+        if not enable_mobile:
+            print >>sys.stderr, """
+  WARNING: Firefox Mobile support is still experimental.
+  If you would like to run an addon on this platform, use --force-mobile flag:
+
+    cfx --force-mobile"""
+            return 0
+        runner.start()
+        profile.cleanup()
+        time.sleep(1)
+        print >>sys.stderr, "Remote application launched successfully."
+        return 0
 
     print >>sys.stderr, "Using binary at '%s'." % runner.binary
 
@@ -574,12 +596,12 @@ def run_app(harness_root_dir, manifest_rdf, harness_options,
 
     print >>sys.stderr, "Using profile at '%s'." % profile.profile
     sys.stderr.flush()
-    
+
     if norun:
         print "To launch the application, enter the following command:"
         print " ".join(runner.command) + " " + (" ".join(runner.cmdargs))
         return 0
-    
+
     runner.start()
 
     done = False
