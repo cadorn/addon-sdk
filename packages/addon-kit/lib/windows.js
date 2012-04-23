@@ -76,6 +76,7 @@ const BrowserWindowTrait = Trait.compose(
       this._load();
       return this;
     },
+    destroy: function () this._onUnload(),
     _tabOptions: [],
     _onLoad: function() {
       try {
@@ -86,6 +87,8 @@ const BrowserWindowTrait = Trait.compose(
       this._emitOnObject(browserWindows, 'open', this._public);
     },
     _onUnload: function() {
+      if (!this._window)
+        return;
       this._destroyWindowTabTracker();
       this._emitOnObject(browserWindows, 'close', this._public);
       this._window = null;
@@ -138,6 +141,7 @@ function BrowserWindow(options) {
 BrowserWindow.prototype = BrowserWindowTrait.prototype;
 exports.BrowserWindow = BrowserWindow
 const windows = [];
+
 /**
  * `BrowserWindows` trait is composed out of `List` trait and it represents
  * "live" list of currently open browser windows. Instance mutates itself
@@ -168,6 +172,7 @@ const browserWindows = Trait.resolve({ toString: null }).compose(
     _destructor: function _destructor() {
       this._removeAllListeners('open');
       this._removeAllListeners('close');
+      this._clear();
     },
     /**
      * This property represents currently active window.
@@ -211,10 +216,13 @@ const browserWindows = Trait.resolve({ toString: null }).compose(
     _onUntrack: function _onUntrack(chromeWindow) {
       if (!this._isBrowser(chromeWindow)) return;
       let window = BrowserWindow({ window: chromeWindow });
-      // `_onUnload` method of the `BrowserWindow` will remove `chromeWindow`
-      // from the `windows` array.
       this._remove(window);
       this._emit('close', window);
+
+      // Bug 724404: do not leak this module and linked windows:
+      // We have to do it on untrack and not only when `_onUnload` is called
+      // when windows are closed, otherwise, we will leak on addon disabling.
+      window.destroy();
     }
   }).resolve({ toString: null })
 )();
