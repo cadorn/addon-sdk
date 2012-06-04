@@ -1,3 +1,7 @@
+<!-- This Source Code Form is subject to the terms of the Mozilla Public
+   - License, v. 2.0. If a copy of the MPL was not distributed with this
+   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+
 <!-- contributed by Dietrich Ayala [dietrich@mozilla.com]  -->
 <!-- contributed by Drew Willcoxon [adw@mozilla.com]  -->
 <!-- edited by Noelle Murata [fiveinchpixie@gmail.com]  -->
@@ -600,8 +604,8 @@ Represents a widget object.
 
 <api name="contentURL">
 @property {string}
-  The URL of content to load into the widget.  This can be
-  [local content](dev-guide/guides/content-scripts/index.html) or remote
+  The URL of content to load into the widget.  This can  point to
+  local content loaded from your add-on's "data" directory or remote
   content, an image or web content.  Setting it updates the widget's appearance
   immediately.  However, if the widget was created using `content`, then this
   property is meaningless, and setting it has no effect.
@@ -792,11 +796,11 @@ In this example `WidgetView` is used to display different content for
 
 <api name="contentURL">
 @property {string}
-  The URL of content to load into the widget view.  This can be
-  [local content](dev-guide/guides/content-scripts/index.html) or remote
-  content, an image or web content.  Setting it updates the widget view's
-  appearance immediately.  However, if the widget view was created using
-  `content`, then this property is meaningless, and setting it has no effect.
+  The URL of content to load into the widget.  This can  point to
+  local content loaded from your add-on's "data" directory or remote
+  content, an image or web content.  Setting it updates the widget's appearance
+  immediately.  However, if the widget was created using `content`, then this
+  property is meaningless, and setting it has no effect.
 </api>
 
 <api name="panel">
